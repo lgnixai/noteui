@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	// Add gorilla/websocket with an alias to avoid name collision
+	"github.com/gin-gonic/gin"
 	gowebsocket "github.com/gorilla/websocket" // Alias the external package
 )
 
@@ -32,11 +33,11 @@ func NewWebSocketHandler(manager *websocket.Manager) *WebSocketHandler {
 	return &WebSocketHandler{Manager: manager}
 }
 
-func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
+func (h *WebSocketHandler) ServeWS(c *gin.Context) {
 	// Optional: Check user authentication here before upgrading
 
 	// Use the aliased Upgrader's Upgrade method
-	conn, err := upgrader.Upgrade(w, r, nil) // Use upgrader (which is gowebsocket.Upgrader)
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // Use upgrader (which is gowebsocket.Upgrader)
 	if err != nil {
 		log.Println("WebSocket upgrade failed:", err)
 		return
@@ -51,8 +52,7 @@ func (h *WebSocketHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Client %s connected via WebSocket", client.ID)
 
 	// ---- Auto-subscribe client to tables based on query params (Example) ----
-	queryValues := r.URL.Query()
-	tableIDStr := queryValues.Get("tableId")
+	tableIDStr := c.Query("tableId")
 	if tableIDStr != "" {
 		if tableID, parseErr := uuid.Parse(tableIDStr); parseErr == nil {
 			log.Printf("Client %s attempting to auto-subscribe to table %s from WS URL", client.ID, tableID)

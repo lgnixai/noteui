@@ -3,187 +3,171 @@ package handlers
 import (
 	"airtable-backend/pkg/models"
 	"airtable-backend/pkg/services"
-	"encoding/json"
-	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
 
 type TableHandler struct {
 	Service     *services.TableService
-	BaseService *services.BaseService // Need BaseService to check if base exists
+	BaseService *services.BaseService
 }
 
 func NewTableHandler(s *services.TableService, bs *services.BaseService) *TableHandler {
 	return &TableHandler{Service: s, BaseService: bs}
 }
 
-func (h *TableHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	baseIDStr := vars["baseId"]
+func (h *TableHandler) CreateTable(c *gin.Context) {
+	baseIDStr := c.Param("baseId")
 	baseID, err := uuid.Parse(baseIDStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid base ID format")
+		ErrorResponse(c, 400, "Invalid base ID format")
 		return
 	}
 
-	// Check if the base exists
 	base, err := h.BaseService.GetBaseByID(baseID)
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check if base exists")
+		ErrorResponse(c, 500, "Failed to check if base exists")
 		return
 	}
 	if base == nil {
-		ErrorResponse(w, http.StatusNotFound, "Base not found")
+		ErrorResponse(c, 404, "Base not found")
 		return
 	}
 
 	var table models.Table
-	if err := json.NewDecoder(r.Body).Decode(&table); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&table); err != nil {
+		ErrorResponse(c, 400, "Invalid request payload")
 		return
 	}
-	table.BaseID = baseID // Associate table with the base from the URL
+	table.BaseID = baseID
 
 	if err := h.Service.CreateTable(&table); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to create table")
+		ErrorResponse(c, 500, "Failed to create table")
 		return
 	}
 
-	JSONResponse(w, http.StatusCreated, table)
+	JSONResponse(c, 201, table)
 }
 
-func (h *TableHandler) GetTable(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tableIDStr := vars["tableId"]
+func (h *TableHandler) GetTable(c *gin.Context) {
+	tableIDStr := c.Param("tableId")
 	tableID, err := uuid.Parse(tableIDStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid table ID format")
+		ErrorResponse(c, 400, "Invalid table ID format")
 		return
 	}
 
 	table, err := h.Service.GetTableByID(tableID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Table not found")
+			ErrorResponse(c, 404, "Table not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get table")
+		ErrorResponse(c, 500, "Failed to get table")
 		return
 	}
 	if table == nil {
-		ErrorResponse(w, http.StatusNotFound, "Table not found")
+		ErrorResponse(c, 404, "Table not found")
 		return
 	}
 
-	// Optional: Validate baseId from URL if needed, e.g., vars["baseId"] vs table.BaseID
-	// For simplicity, assuming tableId is globally unique enough for this example.
-
-	JSONResponse(w, http.StatusOK, table)
+	JSONResponse(c, 200, table)
 }
 
-func (h *TableHandler) GetTablesByBase(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	baseIDStr := vars["baseId"]
+func (h *TableHandler) GetTablesByBase(c *gin.Context) {
+	baseIDStr := c.Param("baseId")
 	baseID, err := uuid.Parse(baseIDStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid base ID format")
+		ErrorResponse(c, 400, "Invalid base ID format")
 		return
 	}
 
-	// Check if the base exists
 	base, err := h.BaseService.GetBaseByID(baseID)
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check if base exists")
+		ErrorResponse(c, 500, "Failed to check if base exists")
 		return
 	}
 	if base == nil {
-		ErrorResponse(w, http.StatusNotFound, "Base not found")
+		ErrorResponse(c, 404, "Base not found")
 		return
 	}
 
 	tables, err := h.Service.GetTablesByBaseID(baseID)
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get tables for base")
+		ErrorResponse(c, 500, "Failed to get tables for base")
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, tables)
+	JSONResponse(c, 200, tables)
 }
 
-func (h *TableHandler) UpdateTable(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tableIDStr := vars["tableId"]
+func (h *TableHandler) UpdateTable(c *gin.Context) {
+	tableIDStr := c.Param("tableId")
 	tableID, err := uuid.Parse(tableIDStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid table ID format")
+		ErrorResponse(c, 400, "Invalid table ID format")
 		return
 	}
 
 	var table models.Table
-	if err := json.NewDecoder(r.Body).Decode(&table); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&table); err != nil {
+		ErrorResponse(c, 400, "Invalid request payload")
 		return
 	}
-	table.ID = tableID // Ensure the ID from the URL is used
+	table.ID = tableID
 
-	// Optional: Check if table exists
 	existingTable, err := h.Service.GetTableByID(tableID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Table not found")
+			ErrorResponse(c, 404, "Table not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing table")
+		ErrorResponse(c, 500, "Failed to check existing table")
 		return
 	}
 	if existingTable == nil {
-		ErrorResponse(w, http.StatusNotFound, "Table not found")
+		ErrorResponse(c, 404, "Table not found")
 		return
 	}
 
-	// Update allowed fields
 	existingTable.Name = table.Name
-	// existingTable.BaseID = ... // Don't allow moving tables between bases here
 
 	if err := h.Service.UpdateTable(existingTable); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to update table")
+		ErrorResponse(c, 500, "Failed to update table")
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, existingTable)
+	JSONResponse(c, 200, existingTable)
 }
 
-func (h *TableHandler) DeleteTable(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tableIDStr := vars["tableId"]
+func (h *TableHandler) DeleteTable(c *gin.Context) {
+	tableIDStr := c.Param("tableId")
 	tableID, err := uuid.Parse(tableIDStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid table ID format")
+		ErrorResponse(c, 400, "Invalid table ID format")
 		return
 	}
 
-	// Optional: Check if table exists before delete
 	existingTable, err := h.Service.GetTableByID(tableID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Table not found")
+			ErrorResponse(c, 404, "Table not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing table")
+		ErrorResponse(c, 500, "Failed to check existing table")
 		return
 	}
 	if existingTable == nil {
-		ErrorResponse(w, http.StatusNotFound, "Table not found")
+		ErrorResponse(c, 404, "Table not found")
 		return
 	}
 
 	if err := h.Service.DeleteTable(tableID); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to delete table")
+		ErrorResponse(c, 500, "Failed to delete table")
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	c.Status(204)
 }

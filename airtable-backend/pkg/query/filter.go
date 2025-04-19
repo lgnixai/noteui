@@ -101,7 +101,7 @@ func BuildGormFilter(db *gorm.DB, fields map[string]models.Field, filter *Filter
 					return nil, fmt.Errorf("failed to build nested filter group: %v", err)
 				}
 
-				// GORM doesn't easily expose the generated SQL WHERE clause string and args from a DB object *before* execution.
+				// GORM doesn't easily exposes the generated SQL WHERE clause string and args from a DB object *before* execution.
 				// We need to build the raw SQL clause parts.
 
 				// Let's reconsider the return type. Returning a function seems most GORM-idiomatic for composition.
@@ -209,7 +209,7 @@ func buildGroupClause(fields map[string]models.Field, group *FilterGroup) (strin
 func buildConditionClause(field models.Field, cond Condition) (string, []interface{}, error) {
 	// Base SQL template for accessing JSONB field value as text
 	// We use ->> 'key' to get the value as TEXT. Casting is needed for non-text comparisons.
-	keyAccessor := fmt.Sprintf("data ->> '%s'", field.KeyName)
+	keyAccessor := fmt.Sprintf("data ->> '%s'", field.Key)
 
 	var clause string
 	var args []interface{}
@@ -248,75 +248,82 @@ func buildConditionClause(field models.Field, cond Condition) (string, []interfa
 		case "is_not_empty":
 			clause = fmt.Sprintf("(%s IS NOT NULL AND %s != '')", keyAccessor, keyAccessor)
 		default:
-			return "", nil, fmt.Errorf("unsupported operator for text field %s: %s", field.Name, cond.Operator)
+			return "", nil, fmt.Errorf("unsupported operator for text field: %s", cond.Operator)
 		}
-
-	case models.FieldNumber:
+	case models.FieldTypeNumber:
 		var value float64
-		// Unmarshal value assuming it's a number
 		if err := json.Unmarshal(cond.Value, &value); err != nil {
 			return "", nil, fmt.Errorf("invalid value format for number field %s: %v", field.Name, err)
 		}
-		// Cast JSONB value to numeric for comparison
-		numericAccessor := fmt.Sprintf("(%s)::numeric", keyAccessor)
 
 		switch cond.Operator {
-		case "=", "!=", ">", "<", ">=", "<=":
-			clause = fmt.Sprintf("%s %s ?", numericAccessor, cond.Operator)
+		case "=":
+			clause = fmt.Sprintf("(%s)::numeric = ?", keyAccessor)
 			args = append(args, value)
-		case "is_empty":
-			clause = fmt.Sprintf("%s IS NULL", keyAccessor) // Number fields are typically NULL when empty
-		case "is_not_empty":
-			clause = fmt.Sprintf("%s IS NOT NULL", keyAccessor)
+		case "!=":
+			clause = fmt.Sprintf("(%s)::numeric != ?", keyAccessor)
+			args = append(args, value)
+		case ">":
+			clause = fmt.Sprintf("(%s)::numeric > ?", keyAccessor)
+			args = append(args, value)
+		case "<":
+			clause = fmt.Sprintf("(%s)::numeric < ?", keyAccessor)
+			args = append(args, value)
+		case ">=":
+			clause = fmt.Sprintf("(%s)::numeric >= ?", keyAccessor)
+			args = append(args, value)
+		case "<=":
+			clause = fmt.Sprintf("(%s)::numeric <= ?", keyAccessor)
+			args = append(args, value)
 		default:
-			return "", nil, fmt.Errorf("unsupported operator for number field %s: %s", field.Name, cond.Operator)
+			return "", nil, fmt.Errorf("unsupported operator for number field: %s", cond.Operator)
 		}
-
-	case models.TypeBoolean:
+	case models.FieldTypeBoolean:
 		var value bool
-		// Unmarshal value assuming it's a boolean
 		if err := json.Unmarshal(cond.Value, &value); err != nil {
 			return "", nil, fmt.Errorf("invalid value format for boolean field %s: %v", field.Name, err)
 		}
-		// Cast JSONB value to boolean for comparison
-		booleanAccessor := fmt.Sprintf("(%s)::boolean", keyAccessor)
 
 		switch cond.Operator {
-		case "=", "!=":
-			clause = fmt.Sprintf("%s %s ?", booleanAccessor, cond.Operator)
+		case "=":
+			clause = fmt.Sprintf("(%s)::boolean = ?", keyAccessor)
 			args = append(args, value)
-		case "is_empty":
-			clause = fmt.Sprintf("%s IS NULL", keyAccessor) // Boolean fields are typically NULL when empty
-		case "is_not_empty":
-			clause = fmt.Sprintf("%s IS NOT NULL", keyAccessor)
+		case "!=":
+			clause = fmt.Sprintf("(%s)::boolean != ?", keyAccessor)
+			args = append(args, value)
 		default:
-			return "", nil, fmt.Errorf("unsupported operator for boolean field %s: %s", field.Name, cond.Operator)
+			return "", nil, fmt.Errorf("unsupported operator for boolean field: %s", cond.Operator)
 		}
-
-	case models.TypeDate:
-		var value string // Expect date string in a format PostgreSQL can parse, e.g., 'YYYY-MM-DD' or RFC3339
-		// Unmarshal value assuming it's a string
+	case models.FieldTypeDate:
+		var value string
 		if err := json.Unmarshal(cond.Value, &value); err != nil {
 			return "", nil, fmt.Errorf("invalid value format for date field %s: %v", field.Name, err)
 		}
-		// Cast JSONB value to timestamp or date for comparison
-		dateAccessor := fmt.Sprintf("(%s)::timestamp", keyAccessor) // Use timestamp for flexibility
 
 		switch cond.Operator {
-		case "=", "!=", ">", "<", ">=", "<=":
-			clause = fmt.Sprintf("%s %s ?", dateAccessor, cond.Operator)
-			args = append(args, value) // Pass date string, PG will parse
-		case "is_empty":
-			clause = fmt.Sprintf("%s IS NULL", keyAccessor) // Date fields are typically NULL when empty
-		case "is_not_empty":
-			clause = fmt.Sprintf("%s IS NOT NULL", keyAccessor)
+		case "=":
+			clause = fmt.Sprintf("(%s)::timestamp = ?", keyAccessor)
+			args = append(args, value)
+		case "!=":
+			clause = fmt.Sprintf("(%s)::timestamp != ?", keyAccessor)
+			args = append(args, value)
+		case ">":
+			clause = fmt.Sprintf("(%s)::timestamp > ?", keyAccessor)
+			args = append(args, value)
+		case "<":
+			clause = fmt.Sprintf("(%s)::timestamp < ?", keyAccessor)
+			args = append(args, value)
+		case ">=":
+			clause = fmt.Sprintf("(%s)::timestamp >= ?", keyAccessor)
+			args = append(args, value)
+		case "<=":
+			clause = fmt.Sprintf("(%s)::timestamp <= ?", keyAccessor)
+			args = append(args, value)
 		default:
-			return "", nil, fmt.Errorf("unsupported operator for date field %s: %s", field.Name, cond.Operator)
+			return "", nil, fmt.Errorf("unsupported operator for date field: %s", cond.Operator)
 		}
-
 	default:
-		// Handle unsupported or generic types
-		return "", nil, fmt.Errorf("unsupported field type for filtering: %s (field: %s)", field.Type, field.Name)
+		return "", nil, fmt.Errorf("unsupported field type: %s", field.Type)
 	}
 
 	return clause, args, nil

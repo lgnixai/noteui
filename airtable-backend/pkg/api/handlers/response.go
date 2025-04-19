@@ -1,24 +1,19 @@
 package handlers
 
 import (
-	"encoding/json"
-	"log"
-	"net/http"
+	"github.com/gin-gonic/gin"
 )
 
 // JSONResponse is a helper to write JSON responses.
-func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+func JSONResponse(c *gin.Context, status int, data interface{}) {
 	if data != nil {
-		if err := json.NewEncoder(w).Encode(data); err != nil {
-			log.Printf("Error encoding JSON response: %v", err)
-			// Optionally write a generic error response here
-		}
+		c.JSON(status, data)
+	} else {
+		c.Status(status)
 	}
 }
 
 // ErrorResponse is a helper to write JSON error responses.
-func ErrorResponse(w http.ResponseWriter, status int, message string) {
-	JSONResponse(w, status, map[string]string{"error": message})
+func ErrorResponse(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{"error": message})
 }

@@ -1,103 +1,179 @@
 package services
 
 import (
-	"airtable-backend/pkg/models"
+	"encoding/json"
 
-	`fmt`
+	"airtable-backend/pkg/models"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type FieldService struct {
-	DB *gorm.DB
+	db *gorm.DB
 }
 
 func NewFieldService(db *gorm.DB) *FieldService {
-	return &FieldService{DB: db}
+	return &FieldService{db: db}
 }
 
+// CreateField creates a new field
 func (s *FieldService) CreateField(field *models.Field) error {
-	// Check if a field with the same name or key_name already exists in this table
-	var existingField models.Field
-	err := s.DB.Where("table_id = ? AND (name = ? OR key_name = ?)", field.TableID, field.Name, field.KeyName).First(&existingField).Error
-	if err == nil {
-		// Record found, name or key_name is not unique in this table
-		return fmt.Errorf("field with name '%s' or key_name '%s' already exists in this table", field.Name, field.KeyName)
+	// Marshal ValidationRule to JSON before saving
+	validationJSON, err := json.Marshal(field.Validation)
+	if err != nil {
+		return err
 	}
-	if err != gorm.ErrRecordNotFound {
-		// Some other database error
-		return fmt.Errorf("database error checking for existing field: %w", err)
+
+	// Create a temporary struct for saving
+	type FieldForSave struct {
+		ID          uuid.UUID `gorm:"type:uuid;primary_key"`
+		TableID     uuid.UUID `gorm:"type:uuid"`
+		Name        string
+		Key         string
+		Type        models.FieldType
+		Description string
+		Validation  string `gorm:"type:text"`
+		Order       int
 	}
-	// No existing field with same name or key_name, proceed to create
-	return s.DB.Create(field).Error
+
+	fieldForSave := FieldForSave{
+		ID:          field.ID,
+		TableID:     field.TableID,
+		Name:        field.Name,
+		Key:         field.Key,
+		Type:        field.Type,
+		Description: field.Description,
+		Validation:  string(validationJSON),
+		Order:       field.Order,
+	}
+
+	return s.db.Create(&fieldForSave).Error
 }
 
+// GetFieldByID retrieves a field by ID
 func (s *FieldService) GetFieldByID(id uuid.UUID) (*models.Field, error) {
 	var field models.Field
-	err := s.DB.First(&field, id).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil // Field not found
-		}
+	if err := s.db.First(&field, id).Error; err != nil {
 		return nil, err
 	}
 	return &field, nil
 }
 
+// GetFieldsByTableID retrieves all fields for a table
 func (s *FieldService) GetFieldsByTableID(tableID uuid.UUID) ([]models.Field, error) {
 	var fields []models.Field
-	err := s.DB.Where("table_id = ?", tableID).Find(&fields).Error
-	return fields, err
+	if err := s.db.Where("table_id = ?", tableID).Order("\"order\" asc").Find(&fields).Error; err != nil {
+		return nil, err
+	}
+	return fields, nil
 }
 
+// UpdateField updates a field
 func (s *FieldService) UpdateField(field *models.Field) error {
-	// When updating a field, changing the KeyName would break existing records.
-	// Changing Type is also complex as it affects interpretation of existing JSONB data.
-	// A real system would need careful migration logic here.
-	// For this example, we allow updating Name and Type, but not KeyName directly via this method.
-	// GORM's Save will update all fields including KeyName if present in struct,
-	// so be cautious. It's better to fetch the existing field and only update allowed fields.
-
-	existingField := &models.Field{}
-	err := s.DB.First(existingField, field.ID).Error
+	// Marshal ValidationRule to JSON before saving
+	validationJSON, err := json.Marshal(field.Validation)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("field with ID %s not found", field.ID)
-		}
-		return fmt.Errorf("error fetching field for update: %w", err)
+		return err
 	}
 
-	// Check if new name or keyname conflicts (only if name/keyname is actually being changed)
-	if existingField.TableID != field.TableID || existingField.Name != field.Name || existingField.KeyName != field.KeyName {
-		var conflictField models.Field
-		query := s.DB.Where("table_id = ?", field.TableID).Where("id != ?", field.ID)
-		query = query.Where("name = ? OR key_name = ?", field.Name, field.KeyName)
-		err = query.First(&conflictField).Error
-
-		if err == nil {
-			// Conflict found
-			return fmt.Errorf("field with name '%s' or key_name '%s' already exists in this table", field.Name, field.KeyName)
-		}
-		if err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("database error checking for update conflict: %w", err)
-		}
+	// Create a temporary struct for saving
+	type FieldForSave struct {
+		ID          uuid.UUID `gorm:"type:uuid;primary_key"`
+		TableID     uuid.UUID `gorm:"type:uuid"`
+		Name        string
+		Key         string
+		Type        models.FieldType
+		Description string
+		Validation  string `gorm:"type:text"`
+		Order       int
 	}
 
-	// Update only allowed fields (Name, Type)
-	// If you want to update more, add them here, but be careful with KeyName.
-	existingField.Name = field.Name
-	existingField.Type = field.Type
-	// existingField.KeyName should NOT be updated via Save unless specific logic is added
+	fieldForSave := FieldForSave{
+		ID:          field.ID,
+		TableID:     field.TableID,
+		Name:        field.Name,
+		Key:         field.Key,
+		Type:        field.Type,
+		Description: field.Description,
+		Validation:  string(validationJSON),
+		Order:       field.Order,
+	}
 
-	return s.DB.Save(existingField).Error
+	return s.db.Save(&fieldForSave).Error
 }
 
+// DeleteField deletes a field
 func (s *FieldService) DeleteField(id uuid.UUID) error {
-	// Deleting a field means records will still have the data in JSONB, but it should be ignored.
-	// A more robust solution might remove the key from all records' JSONB, which is expensive.
-	// For this example, we just delete the field definition. The query logic needs to be robust
-	// enough to handle querying with field IDs that no longer exist (or ignore them).
+	return s.db.Delete(&models.Field{}, id).Error
+}
 
-	return s.DB.Delete(&models.Field{}, id).Error
+// UpdateFieldOrder updates the order of fields
+func (s *FieldService) UpdateFieldOrder(tableID uuid.UUID, fieldOrders map[uuid.UUID]int) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for fieldID, order := range fieldOrders {
+			if err := tx.Model(&models.Field{}).
+				Where("id = ? AND table_id = ?", fieldID, tableID).
+				Update("\"order\"", order).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ValidateFieldValue 验证字段值
+func (s *FieldService) ValidateFieldValue(fieldID uuid.UUID, value interface{}) error {
+	field, err := s.GetFieldByID(fieldID)
+	if err != nil {
+		return err
+	}
+	return field.Validate(value)
+}
+
+// 辅助函数
+
+func isValidFieldType(fieldType models.FieldType) bool {
+	switch fieldType {
+	case models.FieldTypeText,
+		models.FieldTypeNumber,
+		models.FieldTypeBoolean,
+		models.FieldTypeDate,
+		models.FieldTypeSelect,
+		models.FieldTypeMulti,
+		models.FieldTypeFile,
+		models.FieldTypeLink,
+		models.FieldTypeFormula,
+		models.FieldTypeAuto:
+		return true
+	default:
+		return false
+	}
+}
+
+func getDefaultValueForType(fieldType models.FieldType) interface{} {
+	switch fieldType {
+	case models.FieldTypeText:
+		return ""
+	case models.FieldTypeNumber:
+		return 0
+	case models.FieldTypeBoolean:
+		return false
+	case models.FieldTypeDate:
+		return nil
+	case models.FieldTypeSelect:
+		return ""
+	case models.FieldTypeMulti:
+		return []string{}
+	case models.FieldTypeFile:
+		return nil
+	case models.FieldTypeLink:
+		return nil
+	case models.FieldTypeFormula:
+		return ""
+	case models.FieldTypeAuto:
+		return 0
+	default:
+		return nil
+	}
 }

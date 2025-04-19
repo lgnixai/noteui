@@ -2,55 +2,55 @@ package routes
 
 import (
 	"airtable-backend/pkg/api/handlers"
-	"net/http"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(
-	r *mux.Router,
+	r *gin.Engine,
 	baseHandler *handlers.BaseHandler,
 	tableHandler *handlers.TableHandler,
 	fieldHandler *handlers.FieldHandler,
 	recordHandler *handlers.RecordHandler,
 	websocketHandler *handlers.WebSocketHandler,
 ) {
-	api := r.PathPrefix("/api/v1").Subrouter()
+	api := r.Group("/api/v1")
 
 	// Base routes
-	api.HandleFunc("/bases", baseHandler.CreateBase).Methods("POST")
-	api.HandleFunc("/bases", baseHandler.GetAllBases).Methods("GET")
-	api.HandleFunc("/bases/{baseId}", baseHandler.GetBase).Methods("GET")
-	api.HandleFunc("/bases/{baseId}", baseHandler.UpdateBase).Methods("PUT")
-	api.HandleFunc("/bases/{baseId}", baseHandler.DeleteBase).Methods("DELETE")
+	api.POST("/bases", baseHandler.CreateBase)
+	api.GET("/bases", baseHandler.GetAllBases)
+	api.GET("/bases/:baseId", baseHandler.GetBase)
+	api.PUT("/bases/:baseId", baseHandler.UpdateBase)
+	api.DELETE("/bases/:baseId", baseHandler.DeleteBase)
 
 	// Table routes (nested under base)
-	api.HandleFunc("/bases/{baseId}/tables", tableHandler.CreateTable).Methods("POST")
-	api.HandleFunc("/bases/{baseId}/tables", tableHandler.GetTablesByBase).Methods("GET")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}", tableHandler.GetTable).Methods("GET") // Can also get table directly
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}", tableHandler.UpdateTable).Methods("PUT")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}", tableHandler.DeleteTable).Methods("DELETE")
+	api.POST("/bases/:baseId/tables", tableHandler.CreateTable)
+	api.GET("/bases/:baseId/tables", tableHandler.GetTablesByBase)
+	api.GET("/bases/:baseId/tables/:tableId", tableHandler.GetTable)
+	api.PUT("/bases/:baseId/tables/:tableId", tableHandler.UpdateTable)
+	api.DELETE("/bases/:baseId/tables/:tableId", tableHandler.DeleteTable)
 
 	// Field routes (nested under table)
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/fields", fieldHandler.CreateField).Methods("POST")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/fields", fieldHandler.GetFieldsByTable).Methods("GET")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/fields/{fieldId}", fieldHandler.GetField).Methods("GET") // Can also get field directly
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/fields/{fieldId}", fieldHandler.UpdateField).Methods("PUT")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/fields/{fieldId}", fieldHandler.DeleteField).Methods("DELETE")
+	api.POST("/bases/:baseId/tables/:tableId/fields", fieldHandler.CreateField)
+	api.GET("/bases/:baseId/tables/:tableId/fields", fieldHandler.GetFieldsByTable)
+	api.GET("/bases/:baseId/tables/:tableId/fields/:fieldId", fieldHandler.GetField)
+	api.PUT("/bases/:baseId/tables/:tableId/fields/:fieldId", fieldHandler.UpdateField)
+	api.DELETE("/bases/:baseId/tables/:tableId/fields/:fieldId", fieldHandler.DeleteField)
+	api.PUT("/bases/:baseId/tables/:tableId/fields/order", fieldHandler.UpdateFieldOrder)
+	api.POST("/bases/:baseId/tables/:tableId/fields/:fieldId/validate", fieldHandler.ValidateFieldValue)
 
 	// Record routes (nested under table)
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/records", recordHandler.CreateRecord).Methods("POST")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/records", recordHandler.GetRecords).Methods("GET")           // The main query endpoint
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/records/{recordId}", recordHandler.GetRecord).Methods("GET") // Get single record
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/records/{recordId}", recordHandler.UpdateRecord).Methods("PUT")
-	api.HandleFunc("/bases/{baseId}/tables/{tableId}/records/{recordId}", recordHandler.DeleteRecord).Methods("DELETE")
+	api.POST("/bases/:baseId/tables/:tableId/records", recordHandler.CreateRecord)
+	api.GET("/bases/:baseId/tables/:tableId/records", recordHandler.GetRecords)
+	api.GET("/bases/:baseId/tables/:tableId/records/:recordId", recordHandler.GetRecord)
+	api.PUT("/bases/:baseId/tables/:tableId/records/:recordId", recordHandler.UpdateRecord)
+	api.DELETE("/bases/:baseId/tables/:tableId/records/:recordId", recordHandler.DeleteRecord)
 
-	// WebSocket endpoint (not nested under base/table typically)
-	r.HandleFunc("/ws", websocketHandler.ServeWS)
+	// WebSocket endpoint
+	r.GET("/ws", websocketHandler.ServeWS)
 
-	// Optional: Basic health check
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+	// Health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.String(200, "OK")
 	})
 }

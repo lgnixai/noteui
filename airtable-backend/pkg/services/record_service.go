@@ -52,7 +52,7 @@ func (s *RecordService) transformRecordData(record *models.Record, fieldMap map[
 		transformedData := make(map[string]interface{})
 		for fieldID, value := range nestedData {
 			if field, exists := fieldMap[fieldID]; exists {
-				transformedData[field.KeyName] = value
+				transformedData[field.Key] = value
 			} else {
 				transformedData[fieldID] = value
 			}

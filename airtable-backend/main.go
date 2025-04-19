@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"airtable-backend/configs"
 	"airtable-backend/pkg/api/handlers"
@@ -12,8 +11,8 @@ import (
 	"airtable-backend/pkg/services"
 	"airtable-backend/pkg/websocket"
 
-	"github.com/gorilla/mux"
-	"github.com/rs/cors"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -41,36 +40,33 @@ func main() {
 	// Field service is needed by record service
 	fieldService := services.NewFieldService(database.DB)
 	recordService := services.NewRecordService(database.DB, wsManager, fieldService) // Pass WSManager and FieldService
+	queryService := services.NewQueryService(database.DB)                            // Initialize Query Service
 
 	// Initialize Handlers
 	baseHandler := handlers.NewBaseHandler(baseService)
-	tableHandler := handlers.NewTableHandler(tableService, baseService)                // Pass BaseService to TableHandler
-	fieldHandler := handlers.NewFieldHandler(fieldService, tableService)               // Pass TableService to FieldHandler
-	recordHandler := handlers.NewRecordHandler(recordService, tableService, wsManager) // Pass TableService and WSManager
-	websocketHandler := handlers.NewWebSocketHandler(wsManager)                        // Pass WSManager
+	tableHandler := handlers.NewTableHandler(tableService, baseService)                              // Pass BaseService to TableHandler
+	fieldHandler := handlers.NewFieldHandler(fieldService, tableService)                             // Pass TableService to FieldHandler
+	recordHandler := handlers.NewRecordHandler(recordService, tableService, wsManager, queryService) // Pass QueryService to RecordHandler
+	websocketHandler := handlers.NewWebSocketHandler(wsManager)                                      // Pass WSManager
 
 	// Setup Router
-	r := mux.NewRouter()
-	routes.SetupRoutes(r, baseHandler, tableHandler, fieldHandler, recordHandler, websocketHandler)
+	r := gin.Default()
 
 	// Configure CORS
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"}, // Allow all origins
+	config := cors.DefaultConfig()
+	config.AllowAllOrigins = true
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	config.AllowHeaders = []string{"Content-Type", "Authorization"}
+	config.AllowCredentials = true
+	config.MaxAge = 300
+	r.Use(cors.New(config))
 
-		//AllowedOrigins:   []string{cfg.CORSOrigin}, // Use the CORS_ORIGIN from config
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
-		AllowCredentials: true,
-		MaxAge:           300, // Maximum value not ignored by any of major browsers
-	})
-
-	// Wrap the router with the CORS handler
-	handler := corsHandler.Handler(r)
+	// Setup routes
+	routes.SetupRoutes(r, baseHandler, tableHandler, fieldHandler, recordHandler, websocketHandler)
 
 	// Start Server
 	log.Printf("Server starting on %s", cfg.ServerPort)
-	err := http.ListenAndServe(cfg.ServerPort, handler)
-	if err != nil {
+	if err := r.Run(cfg.ServerPort); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

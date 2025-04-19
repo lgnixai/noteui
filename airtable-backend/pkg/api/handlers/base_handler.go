@@ -3,12 +3,10 @@ package handlers
 import (
 	"airtable-backend/pkg/models"
 	"airtable-backend/pkg/services"
-	"encoding/json"
-	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"gorm.io/gorm" // Check for gorm.ErrRecordNotFound
+	"gorm.io/gorm"
 )
 
 type BaseHandler struct {
@@ -19,132 +17,121 @@ func NewBaseHandler(s *services.BaseService) *BaseHandler {
 	return &BaseHandler{Service: s}
 }
 
-func (h *BaseHandler) CreateBase(w http.ResponseWriter, r *http.Request) {
+func (h *BaseHandler) CreateBase(c *gin.Context) {
 	var base models.Base
-	if err := json.NewDecoder(r.Body).Decode(&base); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&base); err != nil {
+		ErrorResponse(c, 400, "Invalid request payload")
 		return
 	}
-
-	// In a real app, get UserID from authenticated user
-	// For this example, let's assign a dummy UserID or omit if not strictly necessary for Base creation
-	// base.UserID = ...
 
 	if err := h.Service.CreateBase(&base); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to create base")
+		ErrorResponse(c, 500, "Failed to create base")
 		return
 	}
 
-	JSONResponse(w, http.StatusCreated, base)
+	JSONResponse(c, 201, base)
 }
 
-func (h *BaseHandler) GetBase(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["baseId"]
+func (h *BaseHandler) GetBase(c *gin.Context) {
+	idStr := c.Param("baseId")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid base ID format")
+		ErrorResponse(c, 400, "Invalid base ID format")
 		return
 	}
 
 	base, err := h.Service.GetBaseByID(id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Base not found")
+			ErrorResponse(c, 404, "Base not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get base")
+		ErrorResponse(c, 500, "Failed to get base")
 		return
 	}
-	if base == nil { // Service might return nil for not found without gorm.ErrRecordNotFound
-		ErrorResponse(w, http.StatusNotFound, "Base not found")
+	if base == nil {
+		ErrorResponse(c, 404, "Base not found")
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, base)
+	JSONResponse(c, 200, base)
 }
 
-func (h *BaseHandler) GetAllBases(w http.ResponseWriter, r *http.Request) {
+func (h *BaseHandler) GetAllBases(c *gin.Context) {
 	bases, err := h.Service.GetAllBases()
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get bases")
+		ErrorResponse(c, 500, "Failed to get bases")
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, bases)
+	JSONResponse(c, 200, bases)
 }
 
-func (h *BaseHandler) UpdateBase(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["baseId"]
+func (h *BaseHandler) UpdateBase(c *gin.Context) {
+	idStr := c.Param("baseId")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid base ID format")
+		ErrorResponse(c, 400, "Invalid base ID format")
 		return
 	}
 
 	var base models.Base
-	if err := json.NewDecoder(r.Body).Decode(&base); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&base); err != nil {
+		ErrorResponse(c, 400, "Invalid request payload")
 		return
 	}
-	base.ID = id // Ensure the ID from the URL is used
+	base.ID = id
 
-	// Optional: Check if base exists before attempting update
 	existingBase, err := h.Service.GetBaseByID(id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Base not found")
+			ErrorResponse(c, 404, "Base not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing base")
+		ErrorResponse(c, 500, "Failed to check existing base")
 		return
 	}
 	if existingBase == nil {
-		ErrorResponse(w, http.StatusNotFound, "Base not found")
+		ErrorResponse(c, 404, "Base not found")
 		return
 	}
 
-	// Update only allowed fields
 	existingBase.Name = base.Name
-	// existingBase.UserID = ... // Don't allow changing ownership here
 
 	if err := h.Service.UpdateBase(existingBase); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to update base")
+		ErrorResponse(c, 500, "Failed to update base")
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, existingBase)
+	JSONResponse(c, 200, existingBase)
 }
 
-func (h *BaseHandler) DeleteBase(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["baseId"]
+func (h *BaseHandler) DeleteBase(c *gin.Context) {
+	idStr := c.Param("baseId")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid base ID format")
+		ErrorResponse(c, 400, "Invalid base ID format")
 		return
 	}
 
-	// Optional: Check if base exists before attempting delete
 	existingBase, err := h.Service.GetBaseByID(id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Base not found")
+			ErrorResponse(c, 404, "Base not found")
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing base")
+		ErrorResponse(c, 500, "Failed to check existing base")
 		return
 	}
 	if existingBase == nil {
-		ErrorResponse(w, http.StatusNotFound, "Base not found")
+		ErrorResponse(c, 404, "Base not found")
 		return
 	}
 
 	if err := h.Service.DeleteBase(id); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to delete base")
+		ErrorResponse(c, 500, "Failed to delete base")
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent) // 204 No Content on successful deletion
+	c.Status(204)
 }

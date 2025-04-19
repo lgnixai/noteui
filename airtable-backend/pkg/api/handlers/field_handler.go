@@ -1,223 +1,277 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
-	`github.com/davecgh/go-spew/spew`
-
 	"airtable-backend/pkg/models"
 	"airtable-backend/pkg/services"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
 
 type FieldHandler struct {
 	Service      *services.FieldService
-	TableService *services.TableService // Need TableService to check if table exists
+	TableService *services.TableService
 }
 
 func NewFieldHandler(s *services.FieldService, ts *services.TableService) *FieldHandler {
 	return &FieldHandler{Service: s, TableService: ts}
 }
 
-func (h *FieldHandler) CreateField(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tableIDStr := vars["tableId"]
-	tableID, err := uuid.Parse(tableIDStr)
-	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid table ID format")
-		return
-	}
-
-	// Check if the table exists
-	table, err := h.TableService.GetTableByID(tableID)
-	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check if table exists")
-		return
-	}
-	if table == nil {
-		ErrorResponse(w, http.StatusNotFound, "Table not found")
-		return
-	}
-
+func (h *FieldHandler) CreateField(c *gin.Context) {
 	var field models.Field
-	if err := json.NewDecoder(r.Body).Decode(&field); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&field); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	field.TableID = tableID // Associate field with the table from the URL
 
-	fmt.Println("field.Type")
-	spew.Dump(field)
+	tableID, err := uuid.Parse(c.Param("tableId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid table ID"})
+		return
+	}
+	field.TableID = tableID
 
-	// Validate field type (optional but good practice)
+	// 如果没有提供Key，则使用Name的小写形式作为Key
+	if field.Key == "" {
+		field.Key = strings.ToLower(strings.ReplaceAll(field.Name, " ", "_"))
+	}
+
 	switch field.Type {
-	case models.FieldTypeText, models.FieldNumber, models.TypeBoolean, models.TypeDate:
+	case models.FieldTypeText, models.FieldTypeNumber, models.FieldTypeBoolean, models.FieldTypeDate:
 		// Valid type
 	default:
-		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("Unsupported field type: %s", field.Type))
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Unsupported field type: %s", field.Type)})
 		return
 	}
 
 	if err := h.Service.CreateField(&field); err != nil {
-		// Check for unique constraint error specifically if needed
 		if strings.Contains(err.Error(), "unique constraint") {
-			ErrorResponse(w, http.StatusConflict, "Field with this name or key already exists in this table")
+			c.JSON(http.StatusConflict, gin.H{"error": "Field with this name or key already exists in this table"})
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to create field")
+		if err.Error() == "table not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create field"})
 		return
 	}
 
-	JSONResponse(w, http.StatusCreated, field)
+	c.JSON(http.StatusCreated, field)
 }
 
-func (h *FieldHandler) GetField(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fieldIDStr := vars["fieldId"]
-	fieldID, err := uuid.Parse(fieldIDStr)
+func (h *FieldHandler) GetField(c *gin.Context) {
+	fieldID, err := uuid.Parse(c.Param("fieldId"))
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid field ID format")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid field ID"})
 		return
 	}
 
 	field, err := h.Service.GetFieldByID(fieldID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Field not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get field")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get field"})
 		return
 	}
 	if field == nil {
-		ErrorResponse(w, http.StatusNotFound, "Field not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 		return
 	}
 
-	// Optional: Validate tableId/baseId from URL if needed
-
-	JSONResponse(w, http.StatusOK, field)
+	c.JSON(http.StatusOK, field)
 }
 
-func (h *FieldHandler) GetFieldsByTable(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	tableIDStr := vars["tableId"]
-	tableID, err := uuid.Parse(tableIDStr)
+func (h *FieldHandler) GetFieldsByTable(c *gin.Context) {
+	tableID, err := uuid.Parse(c.Param("tableId"))
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid table ID format")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid table ID"})
 		return
 	}
 
-	// Check if the table exists
 	table, err := h.TableService.GetTableByID(tableID)
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check if table exists")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check if table exists"})
 		return
 	}
 	if table == nil {
-		ErrorResponse(w, http.StatusNotFound, "Table not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
 		return
 	}
 
 	fields, err := h.Service.GetFieldsByTableID(tableID)
 	if err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to get fields for table")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get fields for table"})
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, fields)
+	c.JSON(http.StatusOK, fields)
 }
 
-func (h *FieldHandler) UpdateField(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fieldIDStr := vars["fieldId"]
-	fieldID, err := uuid.Parse(fieldIDStr)
+func (h *FieldHandler) UpdateField(c *gin.Context) {
+	fieldID, err := uuid.Parse(c.Param("fieldId"))
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid field ID format")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid field ID"})
 		return
 	}
 
 	var field models.Field
-	if err := json.NewDecoder(r.Body).Decode(&field); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid request payload")
+	if err := c.ShouldBindJSON(&field); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	field.ID = fieldID // Ensure ID from URL is used
+	field.ID = fieldID
 
-	// Optional: Check if field exists
 	existingField, err := h.Service.GetFieldByID(fieldID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Field not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing field")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing field"})
 		return
 	}
 	if existingField == nil {
-		ErrorResponse(w, http.StatusNotFound, "Field not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 		return
 	}
 
-	// Validate field type
 	switch field.Type {
-	case models.FieldTypeText, models.FieldNumber, models.TypeBoolean, models.TypeDate:
+	case models.FieldTypeText, models.FieldTypeNumber, models.FieldTypeBoolean, models.FieldTypeDate:
 		// Valid type
 	default:
-		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("Unsupported field type: %s", field.Type))
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Unsupported field type: %s", field.Type)})
 		return
 	}
 
-	// Update allowed fields (Name, Type). Do NOT update KeyName via this method.
+	// 如果没有提供Key，则使用Name的小写形式作为Key
+	if field.Key == "" {
+		field.Key = strings.ToLower(strings.ReplaceAll(field.Name, " ", "_"))
+	}
+
 	existingField.Name = field.Name
+	existingField.Key = field.Key
 	existingField.Type = field.Type
 
 	if err := h.Service.UpdateField(existingField); err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			ErrorResponse(w, http.StatusConflict, "Field with this name or key already exists in this table")
+			c.JSON(http.StatusConflict, gin.H{"error": "Field with this name or key already exists in this table"})
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to update field")
+		if err.Error() == "table not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update field"})
 		return
 	}
 
-	JSONResponse(w, http.StatusOK, existingField)
+	c.JSON(http.StatusOK, existingField)
 }
 
-func (h *FieldHandler) DeleteField(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	fieldIDStr := vars["fieldId"]
-	fieldID, err := uuid.Parse(fieldIDStr)
+func (h *FieldHandler) DeleteField(c *gin.Context) {
+	fieldID, err := uuid.Parse(c.Param("fieldId"))
 	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "Invalid field ID format")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid field ID"})
 		return
 	}
 
-	// Optional: Check if field exists before delete
+	// 先检查字段是否存在
 	existingField, err := h.Service.GetFieldByID(fieldID)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ErrorResponse(w, http.StatusNotFound, "Field not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 			return
 		}
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to check existing field")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing field"})
 		return
 	}
 	if existingField == nil {
-		ErrorResponse(w, http.StatusNotFound, "Field not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Field not found"})
 		return
 	}
 
 	if err := h.Service.DeleteField(fieldID); err != nil {
-		ErrorResponse(w, http.StatusInternalServerError, "Failed to delete field")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete field"})
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	c.Status(http.StatusOK)
+}
+
+func (h *FieldHandler) UpdateFieldOrder(c *gin.Context) {
+	tableID, err := uuid.Parse(c.Param("tableId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid table ID"})
+		return
+	}
+
+	// 先检查表是否存在
+	table, err := h.TableService.GetTableByID(tableID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check if table exists"})
+		return
+	}
+	if table == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
+		return
+	}
+
+	var fieldOrders map[uuid.UUID]int
+	if err := c.ShouldBindJSON(&fieldOrders); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// 验证所有字段是否都属于同一个表
+	for fieldID := range fieldOrders {
+		field, err := h.Service.GetFieldByID(fieldID)
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Field %s not found", fieldID)})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check field"})
+			return
+		}
+		if field.TableID != tableID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Field %s does not belong to table %s", fieldID, tableID)})
+			return
+		}
+	}
+
+	if err := h.Service.UpdateFieldOrder(tableID, fieldOrders); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *FieldHandler) ValidateFieldValue(c *gin.Context) {
+	fieldID, err := uuid.Parse(c.Param("fieldId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid field ID"})
+		return
+	}
+
+	var value interface{}
+	if err := c.ShouldBindJSON(&value); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if err := h.Service.ValidateFieldValue(fieldID, value); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusOK)
 }

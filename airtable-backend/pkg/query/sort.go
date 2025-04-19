@@ -1,7 +1,7 @@
 package query
 
 import (
-	`encoding/json`
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -38,18 +38,18 @@ func BuildGormSort(db *gorm.DB, fields map[string]models.Field, sorts []Sort) (*
 		}
 
 		// Build the order clause with type casting for the JSONB field
-		keyAccessor := fmt.Sprintf("data ->> '%s'", field.KeyName)
+		keyAccessor := fmt.Sprintf("data ->> '%s'", field.Key)
 		var typedAccessor string
 
 		// Determine casting based on field type
 		switch field.Type {
 		case models.FieldTypeText:
 			typedAccessor = keyAccessor // No specific cast needed for text comparison/ordering
-		case models.FieldNumber:
+		case models.FieldTypeNumber:
 			typedAccessor = fmt.Sprintf("(%s)::numeric", keyAccessor)
-		case models.TypeBoolean:
+		case models.FieldTypeBoolean:
 			typedAccessor = fmt.Sprintf("(%s)::boolean", keyAccessor)
-		case models.TypeDate:
+		case models.FieldTypeDate:
 			typedAccessor = fmt.Sprintf("(%s)::timestamp", keyAccessor)
 		default:
 			// For unsupported types, sort as text or skip? Sorting as text is safer.
